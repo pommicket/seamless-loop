@@ -6,21 +6,21 @@ License:
 do what the fuck you want to
 */
 
+use anyhow::{Context, Result};
 use clap::Parser;
-use std::fs::File;
 use std::fmt::{Debug, Display};
-use anyhow::{Result, Context};
+use std::fs::File;
 
 /// Turn a .wav file into a seamless loop.
 #[derive(Parser, Debug)]
 struct Args {
 	/// Input file
 	file: String,
-	
+
 	/// Output file. Defaults to "x-seamless.wav" for input file "x.wav".
 	#[arg(short)]
 	output: Option<String>,
-	
+
 	/// Duration in seconds of the fade.
 	#[arg(short, default_value_t = 0.03)]
 	duration: f32,
@@ -39,7 +39,7 @@ macro_rules! impl_audio_sample {
 				(a * (1.0 - t) + b * t).clamp($min, $max) as Self
 			}
 		}
-	}
+	};
 }
 
 impl_audio_sample!(u8, 0.0, 255.0);
@@ -48,14 +48,22 @@ impl_audio_sample!(i16, -32767.0, 32767.0);
 impl_audio_sample!(i32, -i32::MAX as f32, i32::MAX as f32);
 impl_audio_sample!(f32, -1.0, 1.0);
 
-fn make_seamless<T: AudioSample>(data: &mut Vec<T>, channels: u16, fade_samples: usize) -> Result<()> {
+fn make_seamless<T: AudioSample>(
+	data: &mut Vec<T>,
+	channels: u16,
+	fade_samples: usize,
+) -> Result<()> {
 	let channels: usize = channels.into();
 	let audio_samples = data.len();
 	if fade_samples * 2 >= audio_samples {
-		return Err(anyhow::anyhow!("Fade duration is too long (must be less than half of audio file's duration)."));
+		return Err(anyhow::anyhow!(
+			"Fade duration is too long (must be less than half of audio file's duration)."
+		));
 	}
 	if audio_samples % channels != 0 {
-		return Err(anyhow::anyhow!("Sample count is not multiple of channel count (this shouldn't happen)."));
+		return Err(anyhow::anyhow!(
+			"Sample count is not multiple of channel count (this shouldn't happen)."
+		));
 	}
 	let fade_frames = fade_samples / channels;
 	let audio_frames = audio_samples / channels;
@@ -77,10 +85,11 @@ fn main() -> Result<()> {
 		let name = input.strip_suffix(".wav").unwrap_or(input);
 		name.to_string() + "-seamless.wav"
 	});
-	let mut input_file = File::open(input).with_context(|| format!("Couldn't open input file {input}"))?;
+	let mut input_file =
+		File::open(input).with_context(|| format!("Couldn't open input file {input}"))?;
 	let (header, mut data) = wav::read(&mut input_file)?;
 	drop(input_file);
-	
+
 	let samples = header.sampling_rate as f32 * args.duration;
 	if !samples.is_finite() || samples < 0.0 || samples > usize::MAX as f32 {
 		return Err(anyhow::anyhow!("Bad duration"));
@@ -95,9 +104,10 @@ fn main() -> Result<()> {
 		BitDepth::ThirtyTwoFloat(data) => make_seamless(data, channels, samples)?,
 		BitDepth::Empty => return Err(anyhow::anyhow!("No audio data")),
 	}
-	
-	let mut output_file = File::create(&output).with_context(|| format!("Couldn't open output file {output}"))?;
+
+	let mut output_file =
+		File::create(&output).with_context(|| format!("Couldn't open output file {output}"))?;
 	wav::write(header, &data, &mut output_file)?;
-	
+
 	Ok(())
 }
